@@ -87,7 +87,7 @@
             </label>
         </div>
 
-        <!-- Videon ja piirtoalustan säiliö -->
+        <!-- Videon ja piirtoalustan säiliö (Zoomausta tukeva) -->
         <div class="relative w-full h-[45vh] min-h-[300px] bg-black rounded-3xl overflow-hidden mb-3 shadow-2xl border-2 border-slate-700">
             <div id="mediaContainer" class="relative w-full h-full flex items-center justify-center origin-center transition-transform duration-100 ease-out">
                 <video id="videoElement" class="hidden" playsinline muted></video>
@@ -96,7 +96,7 @@
             
             <div id="loadingOverlay" class="absolute inset-0 bg-slate-900/90 flex items-center justify-center flex-col hidden backdrop-blur-sm z-10">
                 <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-500 mb-4"></div>
-                <p class="text-xl font-bold text-center px-4 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400" id="loadingText">Käynnistetään tekoälyä...<br><span class="text-sm text-slate-400 font-normal">Tämä voi kestää 5-15 sekuntia ensimmäisellä kerralla.</span></p>
+                <p class="text-xl font-bold text-center px-4 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400" id="loadingText">Valmistellaan...<br><span class="text-sm text-slate-400 font-normal">Tämä vie hetken.</span></p>
             </div>
 
             <div id="scanProgressContainer" class="absolute bottom-0 left-0 right-0 h-2 bg-slate-800 hidden z-20 rounded-b-3xl overflow-hidden">
@@ -135,24 +135,8 @@
 
         <!-- Kontrollit -->
         <div class="bg-slate-800 p-6 rounded-3xl shadow-lg mb-5 border border-slate-700">
-            <input type="range" id="timeSlider" min="0" max="100" step="0.001" value="0" class="w-full mb-4 pointer-events-none opacity-50">
+            <input type="range" id="timeSlider" min="0" max="100" step="0.001" value="0" class="w-full mb-6 pointer-events-none opacity-50">
             
-            <!-- Hienosäätönapit mobiilille -->
-            <div class="flex justify-between items-center gap-2 mb-4">
-                <button id="stepBackSec" class="flex-1 bg-slate-700 active:bg-blue-600 py-3 rounded-xl font-bold text-xs sm:text-sm text-slate-200 shadow border border-slate-600">
-                    -0.1s
-                </button>
-                <button id="stepBackFrame" class="flex-1 bg-slate-700 active:bg-blue-600 py-3 rounded-xl font-bold text-xs sm:text-sm text-blue-400 shadow border border-slate-600">
-                    ◄ 1 ruutu
-                </button>
-                <button id="stepNextFrame" class="flex-1 bg-slate-700 active:bg-blue-600 py-3 rounded-xl font-bold text-xs sm:text-sm text-blue-400 shadow border border-slate-600">
-                    1 ruutu ►
-                </button>
-                <button id="stepNextSec" class="flex-1 bg-slate-700 active:bg-blue-600 py-3 rounded-xl font-bold text-xs sm:text-sm text-slate-200 shadow border border-slate-600">
-                    +0.1s
-                </button>
-            </div>
-
             <div class="flex justify-between gap-4">
                 <button id="prevBtn" class="flex-1 bg-slate-700 hover:bg-slate-600 active:bg-slate-500 p-4 rounded-2xl text-lg font-bold transition-all opacity-50 pointer-events-none flex items-center justify-center shadow-md">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -203,7 +187,7 @@
                 <div id="exerciseStats" class="text-center text-sm text-slate-300 font-medium">Lataa video nähdäksesi tilastot.</div>
             </div>
             
-            <p class="text-center text-[10px] text-slate-500 uppercase tracking-wider mb-3 font-semibold">* Klikkaa toistoa hypätäksesi sen syvimpään kohtaan</p>
+            <p class="text-center text-[10px] text-slate-500 uppercase tracking-wider mb-3 font-semibold">* Punainen toisto poikkeaa eniten keskiarvosta</p>
             
             <div class="overflow-x-auto hide-scrollbar rounded-xl border border-slate-700">
                 <table class="w-full text-left text-sm whitespace-nowrap">
@@ -317,7 +301,7 @@
         apiKeySettingsBtn.addEventListener('click', () => {
             const currentKey = localStorage.getItem('gemini_api_key') || '';
             const newKey = prompt("Syötä Gemini API -avain:\n(Avain tallentuu vain selaimesi paikalliseen muistiin, ei palvelimelle.)", currentKey);
-            if (newKey !== null) {
+            if (newKey !== null) { 
                 localStorage.setItem('gemini_api_key', newKey.trim());
                 if(newKey.trim() !== '') {
                     alert("API-avain tallennettu selaimeesi onnistuneesti!");
@@ -337,6 +321,7 @@
         const placeholderText = document.getElementById('placeholderText');
         const scanProgressContainer = document.getElementById('scanProgressContainer');
         const scanProgressBar = document.getElementById('scanProgressBar');
+        const loadingText = document.getElementById('loadingText');
         
         const kneeAngleText = document.getElementById('kneeAngleText');
         const hipAngleText = document.getElementById('hipAngleText');
@@ -359,7 +344,6 @@
         let FRAME_STEP = 1 / currentFps; 
         
         let isProcessing = false;
-        let isModelReady = true;
         let pendingSeek = false;
         
         let globalGaitData = [];
@@ -386,16 +370,14 @@
             minTrackingConfidence: 0.5
         });
 
-        // PÄIVITETTY: KUVASUHTEEN KORJAUS LISÄTTY (width, height)
-        function calculateAngles(landmarks, width = 1, height = 1) {
+        function calculateAngles(landmarks) {
             if (!landmarks) return null;
             
             function getAngle(point_a, center, point_c) {
-                // Skaalataan koordinaatit videon pikselimittakaavaan!
-                const v1_x = (point_a.x - center.x) * width;
-                const v1_y = (point_a.y - center.y) * height;
-                const v2_x = (point_c.x - center.x) * width;
-                const v2_y = (point_c.y - center.y) * height;
+                const v1_x = point_a.x - center.x;
+                const v1_y = point_a.y - center.y;
+                const v2_x = point_c.x - center.x;
+                const v2_y = point_c.y - center.y;
                 
                 const dotProduct = (v1_x * v2_x) + (v1_y * v2_y);
                 const mag1 = Math.sqrt(v1_x * v1_x + v1_y * v1_y);
@@ -434,18 +416,21 @@
         pose.onResults((results) => {
             ctx.save();
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+            // Piirretään videoruutu riippumatta siitä löytyykö ihmistä
+            if (results.image) {
+                ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+            }
             
             if (results.poseLandmarks) {
                 if (currentMode === 'juoksu') {
                     drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, {color: '#10B981', lineWidth: 4}); 
                     drawLandmarks(ctx, results.poseLandmarks, {color: '#EF4444', lineWidth: 2, radius: 4}); 
+                } else {
+                    // Haaleampi luuranko treenitilassa taustalle
+                    drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, {color: '#ffffff30', lineWidth: 2}); 
                 }
                             
-                const imgW = video.videoWidth || canvas.width || 1;
-                const imgH = video.videoHeight || canvas.height || 1;
-                const angles = calculateAngles(results.poseLandmarks, imgW, imgH);
-
+                const angles = calculateAngles(results.poseLandmarks);
                 if (angles) {
                     kneeAngleText.innerText = Math.round(angles.knee) + '°';
                     hipAngleText.innerText = Math.round(angles.hip) + '°';
@@ -481,8 +466,8 @@
                             });
                         }
 
-                        drawAngleVisual(sh, hi, kn, '#34D399');
-                        drawAngleVisual(hi, kn, an, '#60A5FA');
+                        drawAngleVisual(sh, hi, kn, '#34D399'); 
+                        drawAngleVisual(hi, kn, an, '#60A5FA'); 
                     }
                 }
             }
@@ -508,7 +493,7 @@
             });
         }
 
-        async function getPoseFrame(timeoutMs = 1000) {
+        async function getPoseFrame(timeoutMs = 1500) {
             return new Promise(resolve => {
                 let resolved = false;
                 const timeout = setTimeout(() => {
@@ -520,9 +505,11 @@
                 };
 
                 try {
-                    if (video.readyState >= 2 && video.videoWidth > 0) {
+                    if (video.readyState >= 2 && video.videoWidth > 0 && offscreenCanvas.width > 0) {
                         offscreenCtx.drawImage(video, 0, 0, offscreenCanvas.width, offscreenCanvas.height);
-                        pose.send({ image: offscreenCanvas });
+                        pose.send({ image: offscreenCanvas }).catch(err => {
+                            if (!resolved) { resolved = true; clearTimeout(timeout); poseResolve = null; resolve(null); }
+                        });
                     } else {
                         if (!resolved) { resolved = true; clearTimeout(timeout); poseResolve = null; resolve(null); }
                     }
@@ -532,9 +519,65 @@
             });
         }
 
+        // --- UUSI LATAUSLOGIIKKA (Korjaa mustan ruudun) ---
+        input.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            // Nollataan UI
+            placeholderText.classList.add('hidden');
+            loadingOverlay.classList.remove('hidden');
+            loadingText.innerHTML = "Luetaan videota...<br><span class='text-sm text-slate-400 font-normal'>Hetkinen.</span>";
+            
+            slider.value = 0; 
+            video.currentTime = 0;
+            kneeAngleText.innerText = '-°'; hipAngleText.innerText = '-°'; trunkAngleText.innerText = '-°';
+            gaitTableBody.innerHTML = '<tr><td colspan="5" class="text-center text-slate-500 py-6">Odota, analysoidaan...</td></tr>';
+            exerciseTableBody.innerHTML = '<tr><td colspan="7" class="text-center text-slate-500 py-6">Odota, analysoidaan...</td></tr>';
+            if (angleChart) { angleChart.destroy(); angleChart = null; }
+            document.getElementById('feedbackBtn').classList.add('opacity-50', 'pointer-events-none');
+            document.getElementById('feedbackResult').classList.add('hidden');
+
+            // Ladataan video
+            video.src = URL.createObjectURL(file);
+            video.load();
+
+            // 1. Odotetaan varmasti, että selain on purkanut videon leveyden ja korkeuden
+            await new Promise(resolve => {
+                const checkReady = setInterval(() => {
+                    if (video.readyState >= 2 && video.videoWidth > 0) {
+                        clearInterval(checkReady);
+                        resolve();
+                    }
+                }, 100);
+            });
+
+            // 2. Asetetaan kankaiden koot vasta nyt (Estää 0x0 bugit)
+            canvas.width = video.videoWidth; 
+            canvas.height = video.videoHeight;
+            offscreenCanvas.width = video.videoWidth; 
+            offscreenCanvas.height = video.videoHeight;
+            slider.max = video.duration;
+
+            // (Pieni hack iOS-laitteille, jotta video aktivoituu selaimeen)
+            try { await video.play(); video.pause(); } catch(err) {}
+
+            // 3. Odotetaan, että MediaPipe tekoäly on käynnistynyt (Estää ruutujen skippaamisen)
+            loadingText.innerHTML = "Käynnistetään tekoälyä...<br><span class='text-sm text-slate-400 font-normal'>Tämä voi kestää 5-15 sekuntia ensimmäisellä kerralla.</span>";
+            try {
+                await pose.initialize();
+            } catch(err) {
+                console.log("Pose init ohitettu tai epäonnistui", err);
+            }
+
+            // 4. Kaikki valmista, skannaus alkaa
+            loadingText.innerHTML = "Analysoidaan videota...<br><span class='text-sm text-slate-400 font-normal'>Älä sulje selainta.</span>";
+            scanFullVideo();
+        });
+
+
         async function scanFullVideo() {
             isScanning = true;
-            loadingOverlay.classList.remove('hidden');
             scanProgressContainer.classList.remove('hidden');
             
             chartData = { labels: [], knee: [], hip: [], trunk: [], leftAnkleY: [], rightAnkleY: [], hipY: [] };
@@ -543,18 +586,14 @@
             let t = 0;
             
             await seekTo(0);
-            await getPoseFrame(15000); 
-
-            const imgW = video.videoWidth || canvas.width || 1;
-            const imgH = video.videoHeight || canvas.height || 1;
-
+            
             while (t <= video.duration) {
                 await seekTo(t);
-                await new Promise(r => setTimeout(r, 10)); 
-                const results = await getPoseFrame(800);
+                await new Promise(r => setTimeout(r, 20)); // Annetaan selaimelle hieman aikaa piirtää ruutu muistiin
+                const results = await getPoseFrame(1500);
                 
                 if (results && results.poseLandmarks) {
-                    const angles = calculateAngles(results.poseLandmarks, imgW, imgH);
+                    const angles = calculateAngles(results.poseLandmarks);
                     if (angles) {
                         chartData.labels.push(t.toFixed(3));
                         chartData.knee.push(angles.knee);
@@ -600,14 +639,6 @@
                 },
                 options: {
                     responsive: true, maintainAspectRatio: false, animation: false,
-                    onClick: (e, activeElements) => {
-                        if (activeElements && activeElements.length > 0) {
-                            const index = activeElements[0].index;
-                            const targetTime = parseFloat(chartData.labels[index]);
-                            video.currentTime = targetTime;
-                            slider.value = targetTime;
-                        }
-                    },
                     interaction: { mode: 'index', intersect: false },
                     plugins: { legend: { labels: { color: '#CBD5E1', font: {family: 'sans-serif', weight: 'bold'} } } },
                     scales: { x: { display: false }, y: { ticks: { color: '#64748B' }, grid: { color: '#334155' } } }
@@ -729,7 +760,7 @@
             });
 
             globalExerciseData = validReps.map((r, index) => ({
-                repNum: index + 1, downTime: r.downTime, upTime: r.upTime, peakIdx: r.peakIdx,
+                repNum: index + 1, downTime: r.downTime, upTime: r.upTime,
                 minKnee: r.minKnee, hipAtBottom: r.hipAtBottom, trunkAtBottom: r.trunkAtBottom
             }));
 
@@ -746,11 +777,7 @@
 
             events.forEach(evt => {
                 const row = document.createElement('tr');
-                row.className = "border-b border-slate-700/50 hover:bg-slate-700/30 transition-colors cursor-pointer";
-                row.onclick = () => {
-                    video.currentTime = evt.startTime;
-                    slider.value = video.currentTime;
-                };
+                row.className = "border-b border-slate-700/50 hover:bg-slate-700/30 transition-colors";
                 const legColor = evt.leg === 'Vasen' ? 'text-blue-400' : 'text-emerald-400';
                 row.innerHTML = `
                     <td class="py-3 px-3 ${legColor} font-bold">${evt.leg}</td>
@@ -803,11 +830,7 @@
                 else { diffText = `${Math.round(diff)}° (Syvä)`; diffColor = "text-orange-400"; }
 
                 const row = document.createElement('tr');
-                row.className = `border-b border-slate-700/50 transition-colors cursor-pointer hover:bg-blue-600/30 ${isMaxDev ? 'bg-red-900/30' : ''}`;
-                row.onclick = () => {
-                    video.currentTime = parseFloat(chartData.labels[r.peakIdx]);
-                    slider.value = video.currentTime;
-                };
+                row.className = `border-b border-slate-700/50 transition-colors ${isMaxDev ? 'bg-red-900/30' : 'hover:bg-slate-700/30'}`;
                 row.innerHTML = `
                     <td class="py-3 px-3 font-bold text-slate-300">${r.repNum}.</td>
                     <td class="py-3 px-3 text-right text-slate-400">${r.downTime.toFixed(2)}</td>
@@ -823,41 +846,12 @@
         }
 
         // -- TAPAHTUMAT --
-        input.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            video.src = URL.createObjectURL(file);
-            video.load(); 
-            
-            video.play().then(() => { video.pause(); aloitaSkannaus(); }).catch(err => { aloitaSkannaus(); });
-
-            function aloitaSkannaus() {
-                placeholderText.classList.add('hidden');
-                loadingOverlay.classList.remove('hidden');
-                slider.value = 0; video.currentTime = 0;
-                kneeAngleText.innerText = '-°'; hipAngleText.innerText = '-°'; trunkAngleText.innerText = '-°';
-                gaitTableBody.innerHTML = '<tr><td colspan="5" class="text-center text-slate-500 py-6">Odota, analysoidaan...</td></tr>';
-                exerciseTableBody.innerHTML = '<tr><td colspan="7" class="text-center text-slate-500 py-6">Odota, analysoidaan...</td></tr>';
-                if (angleChart) { angleChart.destroy(); angleChart = null; }
-                document.getElementById('feedbackBtn').classList.add('opacity-50', 'pointer-events-none');
-                document.getElementById('feedbackResult').classList.add('hidden');
-            }
-        });
-
-        video.addEventListener('loadedmetadata', () => {
-            slider.max = video.duration;
-            canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-            offscreenCanvas.width = video.videoWidth; offscreenCanvas.height = video.videoHeight;
-            scanFullVideo();
-        });
-
         video.addEventListener('seeked', () => { if (!isScanning) processCurrentFrame(); });
 
         async function processCurrentFrame() {
-            if (!isModelReady) return;
             if (isProcessing) { pendingSeek = true; return; }
             isProcessing = true;
-            await getPoseFrame(400); 
+            await getPoseFrame(500); 
             isProcessing = false;
         }
 
@@ -865,15 +859,11 @@
         prevBtn.addEventListener('click', () => { video.currentTime = Math.max(0, video.currentTime - FRAME_STEP); slider.value = video.currentTime; });
         nextBtn.addEventListener('click', () => { video.currentTime = Math.min(video.duration, video.currentTime + FRAME_STEP); slider.value = video.currentTime; });
 
-        // Mobiilinapit ohjaukseen
-        document.getElementById('stepBackSec').addEventListener('click', () => { video.currentTime = Math.max(0, video.currentTime - 0.1); slider.value = video.currentTime; });
-        document.getElementById('stepNextSec').addEventListener('click', () => { video.currentTime = Math.min(video.duration, video.currentTime + 0.1); slider.value = video.currentTime; });
-        document.getElementById('stepBackFrame').addEventListener('click', () => { video.currentTime = Math.max(0, video.currentTime - FRAME_STEP); slider.value = video.currentTime; });
-        document.getElementById('stepNextFrame').addEventListener('click', () => { video.currentTime = Math.min(video.duration, video.currentTime + FRAME_STEP); slider.value = video.currentTime; });
-
         // -- TEKOÄLYPALAUTE --
         document.getElementById('feedbackBtn').addEventListener('click', async () => {
+            
             const savedApiKey = localStorage.getItem('gemini_api_key');
+            
             if (!savedApiKey) {
                 alert("Et ole vielä asettanut API-avainta.\nPaina sivun alalaidassa olevaa 'Aseta Gemini API -avain' -painiketta lisätäksesi avaimen.");
                 return;
@@ -942,6 +932,7 @@
                 feedbackText.classList.remove('hidden');
             }
         });
+
     </script>
 </body>
 </html>
