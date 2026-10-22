@@ -87,10 +87,11 @@
             </label>
         </div>
 
-        <!-- Videon ja piirtoalustan säiliö (Zoomausta tukeva) -->
+        <!-- Videon ja piirtoalustan säiliö (Zoomausta tukeva ja Firefox-korjattu) -->
         <div class="relative w-full h-[45vh] min-h-[300px] bg-black rounded-3xl overflow-hidden mb-3 shadow-2xl border-2 border-slate-700">
             <div id="mediaContainer" class="relative w-full h-full flex items-center justify-center origin-center transition-transform duration-100 ease-out">
-                <video id="videoElement" class="hidden" playsinline muted></video>
+                <!-- Huom: Firefox Android varten poistettu "hidden" ja korvattu opacity-0 jotta selain purkaa videota taustalla -->
+                <video id="videoElement" class="absolute inset-0 w-full h-full object-contain opacity-0 pointer-events-none z-[-1]" playsinline muted></video>
                 <canvas id="canvasElement" class="w-full h-full object-contain"></canvas>
             </div>
             
@@ -248,6 +249,7 @@
         const gaitAnalysisContainer = document.getElementById('gaitAnalysisContainer');
         const exerciseAnalysisContainer = document.getElementById('exerciseAnalysisContainer');
         const exerciseTableTitle = document.getElementById('exerciseTableTitle');
+        const targetAngleInput = document.getElementById('targetAngleInput');
 
         function setMode(mode) {
             currentMode = mode;
@@ -279,7 +281,6 @@
             if(chartData.labels.length > 0) analyzeExercise();
         });
         
-        const targetAngleInput = document.getElementById('targetAngleInput');
         targetAngleInput.addEventListener('change', () => {
             if(chartData.labels.length > 0 && currentMode === 'treeni') analyzeExercise();
         });
@@ -370,45 +371,57 @@
             minTrackingConfidence: 0.5
         });
 
-        function calculateAngles(landmarks) {
+        // KORJATTU LASKENTAKAAVA (Huomioi videon kuvasuhteen!)
+        function calculateAngles(landmarks, width, height) {
             if (!landmarks) return null;
             
-            function getAngle(point_a, center, point_c) {
-                const v1_x = point_a.x - center.x;
-                const v1_y = point_a.y - center.y;
-                const v2_x = point_c.x - center.x;
-                const v2_y = point_c.y - center.y;
+            // Apufunktio, joka laskee sisäkulman todellisilla pikselikoordinaateilla
+            function getAnglePx(pA, pCenter, pC) {
+                const v1_x = pA.x - pCenter.x;
+                const v1_y = pA.y - pCenter.y;
+                const v2_x = pC.x - pCenter.x;
+                const v2_y = pC.y - pCenter.y;
                 
-                const dotProduct = (v1_x * v2_x) + (v1_y * v2_y);
+                const dot = (v1_x * v2_x) + (v1_y * v2_y);
                 const mag1 = Math.sqrt(v1_x * v1_x + v1_y * v1_y);
                 const mag2 = Math.sqrt(v2_x * v2_x + v2_y * v2_y);
                 
                 if (mag1 * mag2 === 0) return 0; 
-                let cosAngle = dotProduct / (mag1 * mag2);
+                let cosAngle = dot / (mag1 * mag2);
                 cosAngle = Math.max(-1.0, Math.min(1.0, cosAngle));
                 
                 return Math.acos(cosAngle) * (180.0 / Math.PI);
             }
 
+            // Valitaan puoli sen mukaan, kumpi näkyy paremmin kameralle
             const rightVis = (landmarks[24].visibility || 0) + (landmarks[26].visibility || 0) + (landmarks[28].visibility || 0);
             const leftVis = (landmarks[23].visibility || 0) + (landmarks[25].visibility || 0) + (landmarks[27].visibility || 0);
             const isRight = rightVis > leftVis;
             
-            const shoulder = isRight ? landmarks[12] : landmarks[11];
-            const hip = isRight ? landmarks[24] : landmarks[23];
-            const knee = isRight ? landmarks[26] : landmarks[25];
-            const ankle = isRight ? landmarks[28] : landmarks[27];
+            const rawShoulder = isRight ? landmarks[12] : landmarks[11];
+            const rawHip = isRight ? landmarks[24] : landmarks[23];
+            const rawKnee = isRight ? landmarks[26] : landmarks[25];
+            const rawAnkle = isRight ? landmarks[28] : landmarks[27];
 
-            const kneeAngle = getAngle(hip, knee, ankle); 
-            const hipAngle = getAngle(shoulder, hip, knee); 
-            const verticalPoint = { x: hip.x, y: hip.y - 0.5 }; 
-            const trunkAngle = getAngle(verticalPoint, hip, shoulder);
+            // Muunnetaan suhteelliset koordinaatit aidoiksi pikseleiksi, 
+            // jotta pystyvideo ei vääristä kulmia (esim 90 astetta näytti aiemmin 50 asteelta).
+            const shoulder = { x: rawShoulder.x * width, y: rawShoulder.y * height };
+            const hip = { x: rawHip.x * width, y: rawHip.y * height };
+            const knee = { x: rawKnee.x * width, y: rawKnee.y * height };
+            const ankle = { x: rawAnkle.x * width, y: rawAnkle.y * height };
+
+            const kneeAngle = getAnglePx(hip, knee, ankle); 
+            const hipAngle = getAnglePx(shoulder, hip, knee); 
+            
+            // Vartalon kallistus lasketaan suhteessa pystysuoraan (100 px suoraan ylöspäin lonkasta)
+            const verticalPoint = { x: hip.x, y: hip.y - 100 }; 
+            const trunkAngle = getAnglePx(verticalPoint, hip, shoulder);
 
             return {
                 knee: kneeAngle,
                 hip: hipAngle,
                 trunk: trunkAngle,
-                hipY: hip.y,
+                hipY: rawHip.y, // Pidetään Y suhteellisena toistojen tunnistusta varten (0-1)
                 pts: { shoulder, hip, knee, ankle }
             };
         }
@@ -416,7 +429,7 @@
         pose.onResults((results) => {
             ctx.save();
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            // Piirretään videoruutu riippumatta siitä löytyykö ihmistä
+            // Piirretään videoruutu
             if (results.image) {
                 ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
             }
@@ -426,11 +439,11 @@
                     drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, {color: '#10B981', lineWidth: 4}); 
                     drawLandmarks(ctx, results.poseLandmarks, {color: '#EF4444', lineWidth: 2, radius: 4}); 
                 } else {
-                    // Haaleampi luuranko treenitilassa taustalle
                     drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, {color: '#ffffff30', lineWidth: 2}); 
                 }
                             
-                const angles = calculateAngles(results.poseLandmarks);
+                // Huom: Välitetään leveys ja korkeus kulmien laskentaan!
+                const angles = calculateAngles(results.poseLandmarks, canvas.width, canvas.height);
                 if (angles) {
                     kneeAngleText.innerText = Math.round(angles.knee) + '°';
                     hipAngleText.innerText = Math.round(angles.hip) + '°';
@@ -439,15 +452,7 @@
                     if (!isScanning) updateChartPosition(video.currentTime);
 
                     if (currentMode === 'treeni') {
-                        const w = canvas.width;
-                        const h = canvas.height;
                         const p = angles.pts;
-
-                        const sh = { x: p.shoulder.x * w, y: p.shoulder.y * h };
-                        const hi = { x: p.hip.x * w, y: p.hip.y * h };
-                        const kn = { x: p.knee.x * w, y: p.knee.y * h };
-                        const an = { x: p.ankle.x * w, y: p.ankle.y * h };
-
                         function drawAngleVisual(pA, pB, pC, color) {
                             ctx.beginPath();
                             ctx.moveTo(pA.x, pA.y);
@@ -466,8 +471,8 @@
                             });
                         }
 
-                        drawAngleVisual(sh, hi, kn, '#34D399'); 
-                        drawAngleVisual(hi, kn, an, '#60A5FA'); 
+                        drawAngleVisual(p.shoulder, p.hip, p.knee, '#34D399'); 
+                        drawAngleVisual(p.hip, p.knee, p.ankle, '#60A5FA'); 
                     }
                 }
             }
@@ -519,12 +524,11 @@
             });
         }
 
-        // --- UUSI LATAUSLOGIIKKA (Korjaa mustan ruudun) ---
+        // --- UUSI LATAUSLOGIIKKA (Korjattu tyhjä ruutu) ---
         input.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
 
-            // Nollataan UI
             placeholderText.classList.add('hidden');
             loadingOverlay.classList.remove('hidden');
             loadingText.innerHTML = "Luetaan videota...<br><span class='text-sm text-slate-400 font-normal'>Hetkinen.</span>";
@@ -534,15 +538,16 @@
             kneeAngleText.innerText = '-°'; hipAngleText.innerText = '-°'; trunkAngleText.innerText = '-°';
             gaitTableBody.innerHTML = '<tr><td colspan="5" class="text-center text-slate-500 py-6">Odota, analysoidaan...</td></tr>';
             exerciseTableBody.innerHTML = '<tr><td colspan="7" class="text-center text-slate-500 py-6">Odota, analysoidaan...</td></tr>';
+            document.getElementById('exerciseStats').innerHTML = 'Lataa video nähdäksesi tilastot.';
+            
             if (angleChart) { angleChart.destroy(); angleChart = null; }
             document.getElementById('feedbackBtn').classList.add('opacity-50', 'pointer-events-none');
             document.getElementById('feedbackResult').classList.add('hidden');
 
-            // Ladataan video
             video.src = URL.createObjectURL(file);
             video.load();
 
-            // 1. Odotetaan varmasti, että selain on purkanut videon leveyden ja korkeuden
+            // 1. Odotetaan varmasti, että selain on purkanut videon mitat (Korjaa Firefox/Safari -ongelmat)
             await new Promise(resolve => {
                 const checkReady = setInterval(() => {
                     if (video.readyState >= 2 && video.videoWidth > 0) {
@@ -559,10 +564,9 @@
             offscreenCanvas.height = video.videoHeight;
             slider.max = video.duration;
 
-            // (Pieni hack iOS-laitteille, jotta video aktivoituu selaimeen)
             try { await video.play(); video.pause(); } catch(err) {}
 
-            // 3. Odotetaan, että MediaPipe tekoäly on käynnistynyt (Estää ruutujen skippaamisen)
+            // 3. Odotetaan, että MediaPipe on oikeasti valmis
             loadingText.innerHTML = "Käynnistetään tekoälyä...<br><span class='text-sm text-slate-400 font-normal'>Tämä voi kestää 5-15 sekuntia ensimmäisellä kerralla.</span>";
             try {
                 await pose.initialize();
@@ -570,7 +574,7 @@
                 console.log("Pose init ohitettu tai epäonnistui", err);
             }
 
-            // 4. Kaikki valmista, skannaus alkaa
+            // 4. Skannaus alkaa
             loadingText.innerHTML = "Analysoidaan videota...<br><span class='text-sm text-slate-400 font-normal'>Älä sulje selainta.</span>";
             scanFullVideo();
         });
@@ -589,11 +593,11 @@
             
             while (t <= video.duration) {
                 await seekTo(t);
-                await new Promise(r => setTimeout(r, 20)); // Annetaan selaimelle hieman aikaa piirtää ruutu muistiin
+                await new Promise(r => setTimeout(r, 20)); // Annetaan selaimelle hieman aikaa
                 const results = await getPoseFrame(1500);
                 
                 if (results && results.poseLandmarks) {
-                    const angles = calculateAngles(results.poseLandmarks);
+                    const angles = calculateAngles(results.poseLandmarks, canvas.width, canvas.height);
                     if (angles) {
                         chartData.labels.push(t.toFixed(3));
                         chartData.knee.push(angles.knee);
@@ -722,11 +726,22 @@
                 return;
             }
 
-            const hipY = chartData.hipY;
-            if (hipY.length === 0) return;
+            const rawHipY = chartData.hipY;
+            if (rawHipY.length === 0) return;
+            
+            // Pehmennetään dataa kevyesti liikehäiriöiden poistamiseksi
+            const hipY = [];
+            for (let i = 0; i < rawHipY.length; i++) {
+                let sum = 0, count = 0;
+                for(let j = Math.max(0, i-2); j <= Math.min(rawHipY.length-1, i+2); j++) {
+                    sum += rawHipY[j]; count++;
+                }
+                hipY.push(sum/count);
+            }
 
             const peaks = [];
-            const threshold = 0.05; 
+            // Alennettiin toiston tunnistuksen rajaa (5% -> 3%), jotta kauempaakin kuvatut toistot löytyvät taulukkoon
+            const threshold = 0.03; 
             let baselineY = Math.min(...hipY);
 
             for (let i = 5; i < hipY.length - 5; i++) {
