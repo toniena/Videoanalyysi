@@ -883,7 +883,51 @@
                 document.getElementById('feedbackText').classList.remove('hidden');
             }
         });
+                    // ... (Täällä on kaikki aiempi Gemini-koodisi, esim. fetch-kutsu) ...
+            } catch (err) {
+                document.getElementById('feedbackText').innerHTML = "<span class='text-red-400'>Virhe! Tarkista API-avain.</span>";
+            } finally {
+                document.getElementById('feedbackBtn').disabled = false;
+                document.getElementById('feedbackLoading').classList.add('hidden');
+                document.getElementById('feedbackText').classList.remove('hidden');
+            }
+        });
+
+        // ==========================================
+        // 2. LISÄTTY KOODI ALKAA TÄSTÄ
+        // ==========================================
+
+        // VÄLILEHTIEN (TABS) VAIHTOLOGIIKKA
+        function switchTab(tabName) {
+            // Piilota kaikki
+            document.getElementById('tab-metrics').classList.add('hidden');
+            document.getElementById('tab-data').classList.add('hidden');
+            document.getElementById('tab-ai').classList.add('hidden');
+            
+            // Nollaa nappien tyylit
+            const btns = ['metrics', 'data', 'ai'];
+            btns.forEach(id => {
+                const btn = document.getElementById('tabBtn-' + id);
+                if(btn) btn.className = "flex-1 py-3 px-4 rounded-xl font-bold text-sm bg-slate-900/50 text-slate-400 border border-transparent whitespace-nowrap transition-all hover:bg-slate-700";
+            });
+
+            // Aktivoi valittu sisällöstä
+            document.getElementById('tab-' + tabName).classList.remove('hidden');
+            
+            // Aktivoi valittu nappi (väriteema riippuu onko juoksu vai treenitila valittu)
+            const activeBtn = document.getElementById('tabBtn-' + tabName);
+            if (activeBtn) {
+                if (currentMode === 'juoksu') {
+                    activeBtn.className = "flex-1 py-3 px-4 rounded-xl font-bold text-sm bg-gradient-to-r from-blue-500 to-emerald-500 text-white shadow-[0_0_10px_rgba(16,185,129,0.3)] whitespace-nowrap transition-all border border-emerald-400/50";
+                } else {
+                    activeBtn.className = "flex-1 py-3 px-4 rounded-xl font-bold text-sm bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-[0_0_10px_rgba(147,51,234,0.3)] whitespace-nowrap transition-all border border-purple-400/50";
+                }
+            }
+        }
+    </script> <!-- TÄMÄ ON TIEDOSTON ALKUPERÄINEN SULKEVA SCRIPT-TAGI -->
+</body>
+</html>
+
     </script>
 </body>
 </html>
-```eof
