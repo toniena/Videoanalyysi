@@ -381,6 +381,7 @@
             if(chartData.labels.length > 0) {
                 if(mode === 'juoksu') analyzeGait(); else analyzeExercise();
             }
+            switchTab('metrics');
         }
 
         modeRunningBtn.addEventListener('click', () => setMode('juoksu'));
