@@ -398,29 +398,114 @@
             ctx.save();
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             if (results.image) ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+
+            const width = canvas.width;
+            const height = canvas.height;
+
+            // 1. HUD-kehykset videoruudun kulmiin
+            const margin = 15;
+            const len = 25;
+            ctx.strokeStyle = '#00E5FF';
+            ctx.lineWidth = 2;
+            ctx.shadowColor = '#00E5FF';
+            ctx.shadowBlur = 8;
+
+            // Yläkulmat
+            ctx.beginPath(); ctx.moveTo(margin, margin + len); ctx.lineTo(margin, margin); ctx.lineTo(margin + len, margin); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(width - margin - len, margin); ctx.lineTo(width - margin, margin); ctx.lineTo(width - margin, margin + len); ctx.stroke();
+            // Alakulmat
+            ctx.beginPath(); ctx.moveTo(margin, height - margin - len); ctx.lineTo(margin, height - margin); ctx.lineTo(margin + len, height - margin); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(width - margin - len, height - margin); ctx.lineTo(width - margin, height - margin); ctx.lineTo(width - margin, height - margin - len); ctx.stroke();
+
             if (results.poseLandmarks) {
-                if (currentMode === 'juoksu') {
-                    drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, {color: '#10B981', lineWidth: 4}); 
-                    drawLandmarks(ctx, results.poseLandmarks, {color: '#EF4444', lineWidth: 2, radius: 4}); 
-                } else {
-                    drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, {color: '#ffffff30', lineWidth: 2}); 
+                const lm = results.poseLandmarks;
+                const angles = calculateAngles(lm, width, height);
+
+                // Apufunktio hohtavalle viivalle
+                function drawGlowLine(p1, p2, color, widthPx = 4, blurPx = 10) {
+                    ctx.beginPath();
+                    ctx.moveTo(p1.x * width, p1.y * height);
+                    ctx.lineTo(p2.x * width, p2.y * height);
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = widthPx;
+                    ctx.shadowColor = color;
+                    ctx.shadowBlur = blurPx;
+                    ctx.lineCap = 'round';
+                    ctx.stroke();
                 }
-                const angles = calculateAngles(results.poseLandmarks, canvas.width, canvas.height);
+
+                // Apufunktio hohtavalle nivelpisteelle
+                function drawGlowJoint(p, color, radius = 5) {
+                    ctx.beginPath();
+                    ctx.arc(p.x * width, p.y * height, radius, 0, 2 * Math.PI);
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.shadowColor = color;
+                    ctx.shadowBlur = 12;
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(p.x * width, p.y * height, radius + 2, 0, 2 * Math.PI);
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+
+                // Luurangon neon-yhteydet
+                const connections = [
+                    [11, 12, '#00E5FF'], // Olkapäät
+                    [11, 23, '#00E5FF'], [12, 24, '#00E5FF'], [23, 24, '#00E5FF'], // Vartalo
+                    [23, 25, '#39FF14'], [24, 26, '#39FF14'], // Reidet
+                    [25, 27, '#39FF14'], [26, 28, '#39FF14'], // Sääret
+                    [27, 31, '#FF5722'], [28, 32, '#FF5722'], // Jalkaterät
+                    [11, 13, '#3B82F6'], [13, 15, '#3B82F6'], // Vasen käsi
+                    [12, 14, '#3B82F6'], [14, 16, '#3B82F6']  // Oikea käsi
+                ];
+
+                connections.forEach(([i1, i2, color]) => {
+                    if (lm[i1] && lm[i2] && (lm[i1].visibility || 0) > 0.4 && (lm[i2].visibility || 0) > 0.4) {
+                        drawGlowLine(lm[i1], lm[i2], color, 4, 10);
+                    }
+                });
+
+                // Nivelpisteet
+                [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28].forEach(idx => {
+                    if (lm[idx] && (lm[idx].visibility || 0) > 0.4) {
+                        const col = idx >= 23 && idx <= 28 ? '#39FF14' : '#00E5FF';
+                        drawGlowJoint(lm[idx], col, 5);
+                    }
+                });
+
                 if (angles) {
                     document.getElementById('kneeAngleText').innerText = Math.round(angles.knee) + '°';
                     document.getElementById('hipAngleText').innerText = Math.round(angles.hip) + '°';
                     document.getElementById('trunkAngleText').innerText = Math.round(angles.trunk) + '°';
-                    
-                    if (!isScanning) updateChartPosition(video.currentTime);
-                    if (currentMode === 'treeni') {
-                        const p = angles.pts;
-                        function drawA(pA, pB, pC, col) {
-                            ctx.beginPath(); ctx.moveTo(pA.x, pA.y); ctx.lineTo(pB.x, pB.y); ctx.lineTo(pC.x, pC.y);
-                            ctx.strokeStyle = col; ctx.lineWidth = 6; ctx.lineJoin = 'round'; ctx.stroke();
-                            [pA, pB, pC].forEach(pt => { ctx.beginPath(); ctx.arc(pt.x, pt.y, 6, 0, 2*Math.PI); ctx.fillStyle="white"; ctx.fill(); });
-                        }
-                        drawA(p.shoulder, p.hip, p.knee, '#34D399'); drawA(p.hip, p.knee, p.ankle, '#60A5FA'); 
+
+                    // 2. Leijuva kulmanäyttö (Badge) polven viereen
+                    const kneePt = angles.pts.knee;
+                    if (kneePt) {
+                        const text = `Polvi: ${Math.round(angles.knee)}°`;
+                        ctx.font = 'bold 12px sans-serif';
+                        const textWidth = ctx.measureText(text).width;
+                        
+                        const boxX = Math.min(width - textWidth - 25, Math.max(10, kneePt.x + 15));
+                        const boxY = Math.max(20, kneePt.y - 12);
+
+                        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+                        ctx.strokeStyle = '#39FF14';
+                        ctx.lineWidth = 1.5;
+                        ctx.shadowColor = '#39FF14';
+                        ctx.shadowBlur = 8;
+                        
+                        ctx.beginPath();
+                        ctx.roundRect(boxX, boxY, textWidth + 16, 24, 6);
+                        ctx.fill();
+                        ctx.stroke();
+
+                        ctx.fillStyle = '#39FF14';
+                        ctx.shadowBlur = 0;
+                        ctx.fillText(text, boxX + 8, boxY + 16);
                     }
+
+                    if (!isScanning) updateChartPosition(video.currentTime);
                 }
             }
             ctx.restore();
